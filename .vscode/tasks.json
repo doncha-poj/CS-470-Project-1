@@ -1,0 +1,20 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Compile C++ Project",
+			"type": "shell",
+			"command": "g++",
+			"args": [
+				"-o",
+				"main.exe",
+				"main/main.cpp",
+				"main/fibonacci/fibonacci.cpp"
+			],
+			"problemMatcher": [
+				"$gcc"
+			],
+			"group": "build"
+		}
+	]
+}
