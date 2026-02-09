@@ -145,8 +145,10 @@ HeapNode *Delete(HeapNode *node){
 }
 
 ///Defining the Parining Heap
+//Change to class for implementation of member functions
 
-struct PairingHeap{
+class PairingHeap{
+public:
     HeapNode *root;
 
     PairingHeap():
