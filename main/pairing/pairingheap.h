@@ -117,9 +117,10 @@ HeapNode *Delete(HeapNode *node){
 
 }
 
-//definitions:
+//definitions: change struct to class
 
-struct PairingHeap{
+class PairingHeap{
+public:
     HeapNode *root;
 
     PairingHeap():
