@@ -1,40 +1,8 @@
 //Objective: Make a modular pairing heap structure so priority queue implementations can be swapped without changing algorithim logic
 //Pairing heap needs to support: insert (this should return the node on insert for decrease key), extract min, decrease key, find-min
+#include "pairingheap.hpp"
 
-
-#include <iostream>
-#include <limits>
 using namespace std;
-
-//This function builds the actual node structure of the heap
-//Establishes key, left most child, and the next sibling over
-
-struct HeapNode{
-    int key; 
-    HeapNode *leftChild; 
-    HeapNode *nextSibling; 
-    HeapNode *parent; //pointer to parent (for decrease key)
-
-    HeapNode():
-     leftChild(NULL), nextSibling(NULL), parent(NULL) {}
-
-     //Need to create a new node
-
-     HeapNode(int key_, HeapNode *leftChild_, HeapNode *nextSibling_):
-      key(key_), leftChild(leftChild_), nextSibling(nextSibling_), parent(NULL) {}
-
-      //Adds a child and sibling
-
-      void addChild(HeapNode *child){
-        if(leftChild == NULL)
-        leftChild = child;
-        else{
-            child->nextSibling = leftChild;
-            leftChild = child;
-        }
-        child->parent = this;
-      }
-};
 
 
 //Return true if root of tree is null and false otherwise
@@ -75,16 +43,16 @@ int Top(HeapNode *node){
 
 //Insert function
 
-HeapNode *Insert(int key){
+HeapNode *Insert(HeapNode *root, int key, int value){
     ///fixed for compaitability issues now you can store references to the nodes for later decrease key operations
-    HeapNode *newNode = new HeapNode(key, NULL, NULL);
+    HeapNode *newNode = new HeapNode(key, value, NULL, NULL);
     return newNode;
 }
 
 //Decrease key function
 //Decreases the key of a given node and restructures the heap
 
-HeapNode *DecreaseKey(HeapNode *&root, HeapNode *node, int newKey){
+HeapNode *DecreaseKey(HeapNode *root, HeapNode *node, int newKey){
     if(newKey > node->key)
         return node; 
     
@@ -95,11 +63,11 @@ HeapNode *DecreaseKey(HeapNode *&root, HeapNode *node, int newKey){
         return node;
     
     
-    if(node->parent->leftChild == node){
-        node->parent->leftChild = node->nextSibling;
+    if(node->parent->leftchild == node){
+        node->parent->leftchild = node->nextSibling;
     }
     else{
-        HeapNode *sibling = node->parent->leftChild;
+        HeapNode *sibling = node->parent->leftchild;
         while(sibling != NULL && sibling->nextSibling != node)
             sibling = sibling->nextSibling;
         if(sibling != NULL)
@@ -140,54 +108,44 @@ else {
 //Note: Only call on non-empty heaps. Check Empty() first if unsure.
 
 HeapNode *Delete(HeapNode *node){
-    return TwoPassMerge(node->leftChild);
+    return TwoPassMerge(node->leftchild);
 
 }
+
+PairingHeap::~PairingHeap(){}
 
 ///Defining the Parining Heap
 //Change to class for implementation of member functions
 
-class PairingHeap{
-public:
-    HeapNode *root;
+bool PairingHeap::empty() { return ::Empty(root); }
 
-    PairingHeap():
-        root(NULL) {}
+int PairingHeap::Top() { return :: Top(root); }
 
-    bool Empty(void) {
-        return ::Empty(root);
-    }
+void PairingHeap::insert(int key, int value) {
+    HeapNode *newNode = ::Insert(root, key, value);
+    root = ::Merge(root, newNode);
+    nodes.insert({value, newNode});
+}
 
-    int Top(void) {
-        return ::Top(root);
-    }
+void PairingHeap::Delete() {
+    nodes.erase(root->value);
+    root = ::Delete(root);
+}
 
+void PairingHeap::Join(PairingHeap &other) { root = ::Merge(root, other.root); }
 
-    HeapNode *Insert(int key) {
-        HeapNode *newNode = ::Insert(key);
-        root = ::Merge(root, newNode);
-        return newNode;
-    }
+void PairingHeap::decreaseKey(int targ, int newKey) {
+        HeapNode* node = nodes[targ];
+        nodes.erase(targ);
+        nodes.insert(targ, newKey);
+        root = ::DecreaseKey(root, node, newKey);
+}
 
-    //for implementation you can now do:
-    /*Pairing heap;
-    HeapNode *nodeA = heap.Insert(5);
-    HeapNode *nodeB = heap.Insert(10);
-    heap.DecreaseKey(nodeA, 3);*/
-
-
-    void Delete(void) {
-        root = ::Delete(root);
-    }
-
-    void Join(PairingHeap &other) {
-        root = ::Merge(root, other.root);
-    }
-
-    HeapNode *DecreaseKey(HeapNode *node, int newKey) {
-        return ::DecreaseKey(root, node, newKey);
-    }
-};
+int PairingHeap::extractMin() {
+    int min = root->value;
+    Delete();
+    return min;
+}
 
 int main() {
     PairingHeap heap;
