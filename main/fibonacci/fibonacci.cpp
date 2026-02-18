@@ -1,8 +1,9 @@
 #include <iostream>
+#include <utility>
 
 template <typename keytype>
 struct Node {
-    keytype key;
+    std::pair<keytype, int> key; // key is a pair of the value and its degree
     int degree; // tracks the degree of the tree e.g. b0, b1, b2, etc.
     Node* parent;
     Node* child; // the b1, whereas the parent would be b0
@@ -23,12 +24,13 @@ public:
     FibHeap& operator=(const FibHeap& rhs);
 
     // member functions
-    keytype findMin();
+    std::pair<keytype, int> findMin();
     keytype extractMin();
 
-    void insert(keytype k);
+    // void insert(keytype k);
+    Node<keytype>* insert(std::pair<keytype, int> k);
     void merge(FibHeap<keytype> &H2); // optional, but left in the book 
-    void decreaseKey(); // TODO: implement later
+    void decreaseKey(Node<keytype>* node, std::pair<keytype, int> k); // degree maintained when child is lost
 
     void printKey();
 
@@ -39,8 +41,11 @@ private:
 
     // member functions
     void deleteHeap(Node<keytype>* node);
+    Node<keytype>* copyHeap(Node<keytype>* oldNode, Node<keytype>* parent);
     void consolidate(); // only called on extract-min
     void link(Node<keytype>* childNode, Node<keytype>* parentNode);
+    void cut(Node<keytype>* childNode, Node<keytype>* parentNode); // helper for decreaseKey
+    void cascadingCut(Node<keytype>* node); // helper for decreaseKey
     void printHeap(Node<keytype>* node);
 };
 
@@ -64,82 +69,84 @@ FibHeap<keytype>::FibHeap(keytype *k, int s) {
 
     minimumNode = nullptr;
 
+    // for (int i = 0; i < s; i++) {
+    //     insert(k[i]);
+    // }
+
     for (int i = 0; i < s; i++) {
-        insert(k[i]);
+        // Construct a pair using the array value and a default index/id
+        std::pair<keytype, int> entry = {k[i], i}; 
+        insert(entry);
     }
 }
 
 template<typename keytype>
 FibHeap<keytype>::~FibHeap() {
-    // destructor for the class
-    // std::cout << "DESTRUCTOR CALLED" << std::endl; // TODO: delete this later
-
-    if (minimumNode == nullptr) { // empty
-        return;
-    }
-
-    Node<keytype>* currentNode = minimumNode;
-    Node<keytype>* nextNode = nullptr;
-
-    do { // does this block first before checking condition, then normal while loop
-        nextNode = currentNode->right;
-
-        if (currentNode->child != nullptr) {
-            deleteHeap(currentNode); // deletes the tree
-        }
-
-        delete currentNode;
-        currentNode = nextNode;
-    } while (currentNode != minimumNode);
-}
-
-template<typename keytype>
-void FibHeap<keytype>::deleteHeap(Node<keytype> *node) {
-    // helper for deleting children
-    // Recursively delete all nodes starting from the given node
-    if (node == nullptr) { // empty heap
-        return;
-    }
-
-    Node<keytype>* childNode = node->child;
-    if (childNode != nullptr) {
-        Node<keytype>* start = childNode;
-        do {
-            Node<keytype>* nextChild = childNode->right;
-            deleteHeap(childNode); // Recursively delete the child tree
-            childNode = nextChild;
-        } while (childNode != start);
-    }
-
-    // Update parent and child pointers before deleting the node
-    if (node->parent != nullptr) {
-        if (node->parent->child == node) {
-            node->parent->child = nullptr;
-        }
-    }
-
-    if (node->child != nullptr) {
-        node->child->parent = nullptr;
+    if (minimumNode != nullptr) {
+        deleteHeap(minimumNode);
     }
 }
 
 template<typename keytype>
-FibHeap<keytype>::FibHeap(const FibHeap &old) {
+void FibHeap<keytype>::deleteHeap(Node<keytype>* startNode) {
+    if (startNode == nullptr) return;
+
+    // Break the circularity to make it a simple linear list
+    startNode->left->right = nullptr; 
+    
+    Node<keytype>* current = startNode;
+    while (current != nullptr) {
+        Node<keytype>* next = current->right;
+        
+        // Recursively destroy the child list
+        if (current->child != nullptr) {
+            deleteHeap(current->child);
+        }
+        
+        delete current;
+        current = next;
+    }
+}
+
+template<typename keytype>
+Node<keytype>* FibHeap<keytype>::copyHeap(Node<keytype>* oldNode, Node<keytype>* parent) {
     // copy constructor
     // should create a deep copy of the old heap
     // std::cout << "COPY CONSTRUCTOR CALLED" << std::endl; // delete this later
-    minimumNode = nullptr;
+    if (oldNode == nullptr) return nullptr;
 
-    Node<keytype>* currentNode = old.minimumNode;
-    Node<keytype>* nextNode = nullptr;
+    Node<keytype>* firstNew = nullptr;
+    Node<keytype>* lastNew = nullptr;
+    Node<keytype>* currOld = oldNode;
 
     do {
-        nextNode = currentNode->right;
+        // Create new node
+        Node<keytype>* newNode = new Node<keytype>;
+        newNode->key = currOld->key;
+        newNode->degree = currOld->degree;
+        newNode->mark = currOld->mark;
+        newNode->parent = parent;
+        
+        // Recursive copy of children
+        newNode->child = copyHeap(currOld->child, newNode);
 
-        insert(currentNode->key);
+        // Link into new circular list
+        if (firstNew == nullptr) {
+            firstNew = newNode;
+            newNode->left = newNode;
+            newNode->right = newNode;
+        } else {
+            newNode->left = lastNew;
+            newNode->right = firstNew;
+            lastNew->right = newNode;
+            firstNew->left = newNode;
+        }
+        lastNew = newNode;
+        
+        currOld = currOld->right;
+    } while (currOld != oldNode);
 
-        currentNode = nextNode;
-    } while (currentNode != old.minimumNode);
+    return firstNew;
 }
 
 template<typename keytype>
@@ -149,32 +156,24 @@ FibHeap<keytype>& FibHeap<keytype>::operator=(const FibHeap &rhs) {
      * should create a deep copy of the right hand side heap
      * and return a reference to the left hand side heap
      */
-    // std::cout << "ASSIGNMENT OPERATOR CALLED" << std::endl; // delete this later
-    if (this == &rhs) {
-        return *this; // check for self assignment
+    if (this != &rhs) {
+        // Clean up existing memory
+        if (minimumNode != nullptr) deleteHeap(minimumNode);
+        
+        // Perform deep copy
+        if (rhs.minimumNode == nullptr) {
+            minimumNode = nullptr;
+        } else {
+            minimumNode = copyHeap(rhs.minimumNode, nullptr);
+            // After copying must find the new minimum node 
+            // because the copyList logic just copies order.
+        }
     }
-    // delete the current heap
-    if (minimumNode != nullptr) delete this;
-
-    // create a deep copy of the heap
-    minimumNode = nullptr;
-
-    Node<keytype>* currentNode = rhs.minimumNode;
-    Node<keytype>* nextNode = nullptr;
-
-    do {
-        nextNode = currentNode->right;
-
-        insert(currentNode->key);
-
-        currentNode = nextNode;
-    } while (currentNode != rhs.minimumNode);
-
     return *this;
 }
 
 template<typename keytype>
-keytype FibHeap<keytype>::findMin() {
+std::pair<keytype, int> FibHeap<keytype>::findMin() {
     // returns the minimum key in the heap
     // without modifying the heap
     return minimumNode->key;
@@ -189,102 +188,98 @@ keytype FibHeap<keytype>::extractMin() {
      * (smallest tree to largest tree)
      * and consolidate called starting with the first (smallest rank) child tree
      */
-
-    // the list empty
-    if (minimumNode == nullptr) { // the list is empty
-        // std::cout << "heap is empty" << std::endl; // delete this later
-        return keytype();
+    if (minimumNode == nullptr) {
+        return keytype(); // empty heap
     }
 
-    // assign mininum key to key value
-    int keyValue = minimumNode->key;
+    Node<keytype>* z = minimumNode;
+    keytype minKey = z->key.first; // extracting the key from the pair
 
-    // pop the minimum
-    Node<keytype>* minLeft = minimumNode->left;
-    Node<keytype>* minRight = minimumNode->right;
-
-    if (minimumNode->child == nullptr) { // no child case
-        minLeft->right = minimumNode->right;
-        minRight->left = minimumNode->left;
-
-        delete minimumNode;
-
-        // find new min
-        minimumNode = minRight; // end point
-        Node<keytype>* currentNode = minRight->right; // one node after end point (start)
-
-        while (currentNode != minRight) {
-            if (currentNode->key < minimumNode->key) {
-                minimumNode = currentNode;
-            }
-            currentNode = currentNode->right;
-        }
-    } else { // child case
-        Node<keytype>* minChild = minimumNode->child;
-        Node<keytype>* minChildLeft = minimumNode->child->left;
-
-        minimumNode->child->left->right = minimumNode->right;
-        minimumNode->child->left = minimumNode->left;
-
-        minimumNode->left->right = minimumNode->child;
-        minimumNode->right->left = minChildLeft;
-
-        minimumNode->child->parent = minimumNode->child; // assign self as parent
-
-        delete minimumNode;
-
-        minimumNode = minChild;
+    // promote children to the root list
+    if (z->child != nullptr) {
+        Node<keytype>* child = z->child;
+        Node<keytype>* startChild = child;
+        
+        // Iterate through the circular child list to nullify parent pointers
+        do {
+            Node<keytype>* nextChild = child->right;
+            
+            // Add child to root list (left of minimumNode)
+            child->left = minimumNode->left;
+            child->right = minimumNode;
+            minimumNode->left->right = child;
+            minimumNode->left = child;
+            
+            child->parent = nullptr; 
+            child = nextChild;
+        } while (child != startChild);
     }
 
-    // consolidate the heap
-    consolidate();
+    // Remove z from the root list
+    z->left->right = z->right;
+    z->right->left = z->left;
 
-    // if the root list becomes empty, update minimumNode to nullptr
-    // if (minimumNode == minRight) {
-    //     minimumNode = nullptr;
-    // }
+    if (z == z->right) {
+        // z was the only node in the root list
+        minimumNode = nullptr;
+    } else {
+        // Set a temporary minimum to start consolidation
+        minimumNode = z->right;
+        consolidate();
+    }
 
-    // returns the old min
-    return keyValue;
+    delete z;
+    return minKey;
 }
 
 template<typename keytype>
 void FibHeap<keytype>::consolidate() {
-    /*
-     * the consolidate function should finish with a binomial heap
-     * where there is at most one tree of any given size
-     * consolidate should start at the minimum pointer and
-     * process trees from left to right
-     * when the process is finished, the list should be created
-     * from smallest tree to largest and the minimum pointer should be updated
-     */
-    if (minimumNode == nullptr) return; // empty
+    Node<keytype>* rootArray[MAX_DEGREE] = {nullptr};
 
-    // initialization
-    Node<keytype>* rootList[MAX_DEGREE] = {nullptr};
-    Node<keytype>* currentNode = minimumNode;
-    Node<keytype>* endNode = minimumNode;
-    Node<keytype>* nextNode = nullptr;
+    // Find all nodes in the root list first to avoid pointer issues during modification
+    std::vector<Node<keytype>*> nodes;
+    Node<keytype>* curr = minimumNode;
+    if (curr == nullptr) return;
 
-    do { // traversing rootlist and consolidating heaps with same degree
-        nextNode = currentNode->right;
-        int degree = currentNode->degree;
+    do {
+        nodes.push_back(curr);
+        curr = curr->right;
+    } while (curr != minimumNode);
 
-        while ((rootList[degree] != nullptr)) {// combining trees of equal degree
-            // merging trees with same degree
-            Node<keytype>* otherNode = rootList[degree]; // this is the node to the right or more
-            if (otherNode->key < currentNode->key) { // swap the two nodes when other is greater than current
-                std::swap(currentNode, otherNode);
+    // Merge trees of equal degree
+    for (Node<keytype>* w : nodes) {
+        int d = w->degree;
+        while (rootArray[d] != nullptr) {
+            Node<keytype>* y = rootArray[d];
+            if (y->key < w->key) { // Using std::pair comparison
+                std::swap(w, y);
             }
-            // set other node as child of other node
-            link(otherNode, currentNode);
-            rootList[degree] = nullptr;
-            ++degree; // update degree array
+            link(y, w); // w becomes parent of y
+            rootArray[d] = nullptr;
+            d++;
         }
+        rootArray[d] = w;
+    }
 
-        rootList[degree] = currentNode;
-        currentNode = nextNode; // gets next node
-    } while(currentNode != endNode);
+    // Reconstruct root list and find new minimum
+    minimumNode = nullptr;
+    for (int i = 0; i < MAX_DEGREE; i++) {
+        if (rootArray[i] != nullptr) {
+            if (minimumNode == nullptr) {
+                minimumNode = rootArray[i];
+                minimumNode->left = minimumNode;
+                minimumNode->right = minimumNode;
+            } else {
+                rootArray[i]->left = minimumNode->left;
+                rootArray[i]->right = minimumNode;
+                minimumNode->left->right = rootArray[i];
+                minimumNode->left = rootArray[i];
+                if (rootArray[i]->key < minimumNode->key) {
+                    minimumNode = rootArray[i];
+                }
+            }
+        }
+    }
 }
 
 template<typename keytype>
@@ -299,26 +294,28 @@ void FibHeap<keytype>::link(Node<keytype> *childNode, Node<keytype> *parentNode)
     childNode->right->left = childNode->left;
 
     // make child node a child of parent node
-    if (parentNode->child == nullptr) { // this is a b0 to a b1
+    childNode->parent = parentNode;
+
+    if (parentNode->child == nullptr) {
+        // Parent had no children, create a new circular list
         parentNode->child = childNode;
         childNode->left = childNode;
         childNode->right = childNode;
-        childNode->parent = parentNode;
     } else {
-        childNode->left = parentNode->child->left;
-        childNode->right = parentNode->child;
-        parentNode->child->left->right = childNode;
-        childNode->right->left = childNode;
+        // Splice childNode into the parent's existing circular child list
+        childNode->left = parentNode->child;
+        childNode->right = parentNode->child->right;
+        parentNode->child->right->left = childNode;
+        parentNode->child->right = childNode;
     }
-    // childNode->parent = parentNode;
 
-    // increment degree of parent
+    // update parent properties
     parentNode->degree++;
-    // std::cout << "degree: " << parentNode->degree << std::endl;
+    childNode->mark = false; // new children are always unmarked
 }
 
 template<typename keytype>
-void FibHeap<keytype>::insert(keytype k) {
+Node<keytype>* FibHeap<keytype>::insert(std::pair<keytype, int> k) {
     /*
      * inserts the key k into the heap
      * inserts a new b0 tree to the left of the min root
@@ -327,8 +324,9 @@ void FibHeap<keytype>::insert(keytype k) {
     Node<keytype>* newNode = new Node<keytype>;
     newNode->key = k;
     newNode->degree = 0;
-    newNode->parent = newNode;
+    newNode->parent = nullptr;
     newNode->child = nullptr;
+    newNode->mark = false;
 
     if (minimumNode == nullptr) {// empty heap
         minimumNode = newNode;
@@ -346,6 +344,7 @@ void FibHeap<keytype>::insert(keytype k) {
             minimumNode = newNode;
         }
     }
+    return newNode;
 }
 
 // Not part of the scope, but something leftover from before
@@ -375,15 +374,72 @@ void FibHeap<keytype>::merge(FibHeap<keytype> &H2) {
 }
 
 template<typename keytype>
-void FibHeap<keytype>::decreaseKey() {
-    /* 
-    Ensure new key is not greater than the current key
-    Assign new key to x
-    Case 1: If x is a root, or x is greater than y
-    
-    i want to finish this later
+void FibHeap<keytype>::decreaseKey(Node<keytype>* node, std::pair<keytype, int> k) {
+    /*
+     * decreases the key of the given node to k
+     * if the new key is greater than the old key, do nothing
+     * if the new key is less than the old key, update the key and
+     * if the new key is less than the parent's key, cut the node from its parent and
+     * add it to the root list
      */
-    return
+    
+    if (k > node->key) {
+        return; 
+    }
+
+    node->key = k;
+    Node<keytype>* parentNode = node->parent;
+
+    // If the node is not a root and violates the heap property
+    if (parentNode != nullptr && node->key < parentNode->key) {
+        cut(node, parentNode);
+        cascadingCut(parentNode);
+    }
+
+    // Update the minimum pointer if the decreased key is the new global minimum
+    if (node->key < minimumNode->key) {
+        minimumNode = node;
+    }
+}
+
+template<typename keytype>
+void FibHeap<keytype>::cut(Node<keytype>* childNode, Node<keytype>* parentNode) {
+    // Remove childNode from the cyclic child list of parentNode
+    if (childNode->right == childNode) {
+        // childNode was the only child
+        parentNode->child = nullptr;
+    } else {
+        childNode->left->right = childNode->right;
+        childNode->right->left = childNode->left;
+        if (parentNode->child == childNode) {
+            parentNode->child = childNode->right;
+        }
+    }
+    parentNode->degree--;
+
+    // Add childNode to the root list (to the left of minimumNode)
+    childNode->left = minimumNode->left;
+    childNode->right = minimumNode;
+    minimumNode->left->right = childNode;
+    minimumNode->left = childNode;
+
+    childNode->parent = nullptr;
+    childNode->mark = false; // Reset mark because it's now a root
+}
+
+template<typename keytype>
+void FibHeap<keytype>::cascadingCut(Node<keytype>* node) {
+    Node<keytype>* parentNode = node->parent;
+    if (parentNode != nullptr) {
+        if (!node->mark) {
+            // If the node hasn't lost a child since it was last made a child of parent, mark it
+            node->mark = true;
+        } else {
+            // If it was already marked, cut it and continue up the tree
+            cut(node, parentNode);
+            cascadingCut(parentNode);
+        }
+    }
 }
 
 template<typename keytype>
